@@ -3,7 +3,7 @@ name: Cron
 on:
   schedule:
     - cron: "0 23 * * *"   # UTC 23:00 == 台北 07:00 push assignment
-    - cron: "0 13 * * *"   # UTC 13:00 == 台北 21:00 send reminder
+    - cron: "0 10 * * *"   # UTC 10:00 == 台北 18:00 send reminder
   workflow_dispatch:
     inputs:
       endpoint:
