@@ -278,22 +278,70 @@ def _link_menu(user_id: str, rich_menu_id: str) -> None:
         client.close()
 
 
+_STUDENT_MENU_ID_CACHE: str | None = None
+
+
+def _load_student_menu_id() -> str | None:
+    """Find existing student menu on LINE (if any) and cache ID."""
+    global _STUDENT_MENU_ID_CACHE
+    if _STUDENT_MENU_ID_CACHE:
+        return _STUDENT_MENU_ID_CACHE
+    client, api, _ = _messaging_clients()
+    try:
+        menus = api.get_rich_menu_list().richmenus or []
+        for m in menus:
+            if getattr(m, "name", "") == "student-menu":
+                _STUDENT_MENU_ID_CACHE = m.rich_menu_id
+                return _STUDENT_MENU_ID_CACHE
+        return None
+    finally:
+        client.close()
+
+
+def link_student_menu_for_user(user_id: str) -> None:
+    """Called when a new student auto-registers — link student menu to that user."""
+    menu_id = _load_student_menu_id()
+    if menu_id is None:
+        log.warning("student_menu_not_found_cannot_link", user_id=user_id)
+        return
+    _link_menu(user_id, menu_id)
+
+
 def setup_rich_menus() -> dict:
+    global _STUDENT_MENU_ID_CACHE
     settings = get_settings()
     _delete_existing_menus()
+    _STUDENT_MENU_ID_CACHE = None
 
     teacher_id = _create_and_upload(2, 3, "teacher-menu", "老師選單", TEACHER_BUTTONS, "teacher")
     student_id = _create_and_upload(1, 3, "student-menu", "學生選單", STUDENT_BUTTONS, "student")
+    _STUDENT_MENU_ID_CACHE = student_id
 
     if settings.TEACHER_USER_ID:
         _link_menu(settings.TEACHER_USER_ID, teacher_id)
-    if settings.STUDENT_USER_ID:
-        _link_menu(settings.STUDENT_USER_ID, student_id)
+
+    # Link student menu to every active student in DB
+    linked_students: list[str] = []
+    try:
+        from app import db as _db
+        from app.services import student as student_svc
+
+        session = _db.SessionLocal()
+        try:
+            # seed legacy if configured
+            student_svc.ensure_seed(session, settings.STUDENT_USER_ID)
+            for s in student_svc.list_active(session):
+                _link_menu(s.line_user_id, student_id)
+                linked_students.append(s.line_user_id[:8])
+        finally:
+            session.close()
+    except Exception as exc:
+        log.warning("setup_rich_menu_link_students_failed", error=str(exc))
 
     return {
         "ok": True,
         "teacher_rich_menu_id": teacher_id,
         "student_rich_menu_id": student_id,
         "teacher_linked": bool(settings.TEACHER_USER_ID),
-        "student_linked": bool(settings.STUDENT_USER_ID),
+        "students_linked": linked_students,
     }

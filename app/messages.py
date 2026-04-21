@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -6,16 +9,21 @@ from app.models import Assignment, Task
 _WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
 
 
+@dataclass
+class TaskStateView:
+    task: Task
+    completed_at: datetime | None
+
+
 def _fmt_date(d: date) -> str:
     return f"{d.isoformat()} ({_WEEKDAY[d.weekday()]})"
 
 
-def _task_row(task: Task, show_date: bool = False) -> dict:
-    is_done = task.completed_at is not None
-    label_parts = []
+def _task_row(state: TaskStateView, show_date: bool = False) -> dict:
+    is_done = state.completed_at is not None
+    label = state.task.text
     if show_date:
-        label_parts.append(f"[{task.assignment.assigned_date.strftime('%m-%d')}]")
-    label_parts.append(task.text)
+        label = f"[{state.task.assignment.assigned_date.strftime('%m-%d')}] {label}"
     row: dict = {
         "type": "box",
         "layout": "horizontal",
@@ -30,7 +38,7 @@ def _task_row(task: Task, show_date: bool = False) -> dict:
             },
             {
                 "type": "text",
-                "text": " ".join(label_parts),
+                "text": label,
                 "flex": 6,
                 "wrap": True,
                 "size": "md",
@@ -50,8 +58,8 @@ def _task_row(task: Task, show_date: bool = False) -> dict:
                 "action": {
                     "type": "postback",
                     "label": "完成",
-                    "data": f"action=complete_task&task_id={task.id}",
-                    "displayText": f"完成：{task.text[:15]}",
+                    "data": f"action=complete_task&task_id={state.task.id}",
+                    "displayText": f"完成：{state.task.text[:15]}",
                 },
             }
         )
@@ -59,23 +67,24 @@ def _task_row(task: Task, show_date: bool = False) -> dict:
 
 
 def build_assignment_flex(
-    assignment: Assignment, overdue_tasks: list[Task] | None = None
+    assignment: Assignment,
+    task_states: list[TaskStateView],
+    overdue_task_states: list[TaskStateView] | None = None,
 ) -> dict:
-    tasks = list(assignment.tasks)
-    total = len(tasks)
-    done = sum(1 for t in tasks if t.completed_at is not None)
+    total = len(task_states)
+    done = sum(1 for s in task_states if s.completed_at is not None)
 
-    task_rows: list[dict] = []
-    for t in tasks:
-        task_rows.append(_task_row(t))
-        task_rows.append({"type": "separator", "margin": "sm"})
-    if task_rows and task_rows[-1].get("type") == "separator":
-        task_rows.pop()
+    body_rows: list[dict] = []
+    for s in task_states:
+        body_rows.append(_task_row(s))
+        body_rows.append({"type": "separator", "margin": "sm"})
+    if body_rows and body_rows[-1].get("type") == "separator":
+        body_rows.pop()
 
     summary_text = f"{done} / {total} 完成" if total else "（無子項目）"
 
     overdue_blocks: list[dict] = []
-    if overdue_tasks:
+    if overdue_task_states:
         overdue_blocks.append({"type": "separator", "margin": "lg"})
         overdue_blocks.append(
             {
@@ -87,8 +96,8 @@ def build_assignment_flex(
                 "margin": "md",
             }
         )
-        for t in overdue_tasks:
-            overdue_blocks.append(_task_row(t, show_date=True))
+        for s in overdue_task_states:
+            overdue_blocks.append(_task_row(s, show_date=True))
 
     footer_buttons: list[dict] = [
         {
@@ -133,7 +142,7 @@ def build_assignment_flex(
             "type": "box",
             "layout": "vertical",
             "spacing": "sm",
-            "contents": task_rows + [
+            "contents": body_rows + [
                 {"type": "separator", "margin": "md"},
                 {
                     "type": "text",
@@ -183,55 +192,56 @@ def teacher_help_text() -> str:
         "\n"
         "/today /history [N] /pending\n"
         "/schedule [N] — 今天起 N 天排程\n"
+        "/students — 目前登記的學生\n"
         "/whoami /help"
     )
-
-
-def _task_summary(assignment: Assignment) -> str:
-    total = len(assignment.tasks)
-    if total == 0:
-        return ""
-    done = sum(1 for t in assignment.tasks if t.completed_at is not None)
-    return f"{done}/{total}"
 
 
 def today_status_text(
     assignment: Assignment | None,
     tz: ZoneInfo,
-    overdue_tasks: list[Task] | None = None,
+    task_states: list[TaskStateView] | None = None,
+    overdue_task_states: list[TaskStateView] | None = None,
+    teacher_multi_student_summary: list[tuple[str, int, int]] | None = None,
 ) -> str:
-    if assignment is None and not overdue_tasks:
+    """
+    task_states: view from one student (or None for teacher-aggregate view)
+    teacher_multi_student_summary: [(student_name, done, total), ...] — shown to teacher
+    """
+    if assignment is None and not overdue_task_states:
         return "今天還沒有登錄作業喔。使用 /assign <內容> 來登錄。"
     lines: list[str] = []
     if assignment is not None:
         lines.append(f"📅 {_fmt_date(assignment.assigned_date)}")
-        if assignment.tasks:
+        if task_states:
+            for s in task_states:
+                mark = "✅" if s.completed_at else "☐"
+                lines.append(f"{mark} {s.task.text}")
+        elif assignment.tasks:
             for t in assignment.tasks:
-                mark = "✅" if t.completed_at else "☐"
-                lines.append(f"{mark} {t.text}")
+                lines.append(f"• {t.text}")
         else:
             lines.append(f"📝 {assignment.content}")
-        summary = _task_summary(assignment)
-        if summary:
-            lines.append(f"進度：{summary} 完成")
-        if assignment.completed_at:
-            local = assignment.completed_at.astimezone(tz)
-            lines.append(f"🎉 全部完成：{local.strftime('%H:%M')}")
-        elif assignment.pushed_at:
-            lines.append("📤 已推播，等待完成")
-        else:
-            lines.append("🕒 尚未推播")
-        if assignment.photos:
-            lines.append(f"📸 照片 {len(assignment.photos)} 張")
+        if teacher_multi_student_summary:
+            lines.append("")
+            lines.append("各學生進度：")
+            for name, done, total in teacher_multi_student_summary:
+                icon = "✅" if total > 0 and done == total else "🕒"
+                lines.append(f"{icon} {name}：{done}/{total}")
+        elif task_states:
+            done = sum(1 for s in task_states if s.completed_at is not None)
+            total = len(task_states)
+            if total:
+                lines.append(f"進度：{done}/{total} 完成")
     else:
         lines.append("（今天還沒登錄作業）")
 
-    if overdue_tasks:
+    if overdue_task_states:
         lines.append("")
         lines.append("📌 之前未完成")
-        for t in overdue_tasks:
-            d = t.assignment.assigned_date.strftime("%m-%d")
-            lines.append(f"☐ [{d}] {t.text}")
+        for s in overdue_task_states:
+            d = s.task.assignment.assigned_date.strftime("%m-%d")
+            lines.append(f"☐ [{d}] {s.task.text}")
     return "\n".join(lines)
 
 
@@ -244,26 +254,48 @@ def assign_ack_text(assignment: Assignment, was_update: bool, previous_content: 
     return f"✅ 已登錄 {_fmt_date(assignment.assigned_date)} 作業：{assignment.content}"
 
 
-def history_text(assignments: list[Assignment], days: int, tz: ZoneInfo) -> str:
+def history_text(
+    assignments: list[Assignment],
+    days: int,
+    tz: ZoneInfo,
+    progress_map: dict[int, tuple[int, int]] | None = None,
+) -> str:
+    """
+    progress_map: {assignment_id: (any_completed_count, total_tasks)} — aggregated view
+    """
     if not assignments:
         return f"📒 最近 {days} 天沒有任何作業紀錄"
     lines = [f"📒 最近 {days} 天"]
+    progress_map = progress_map or {}
     for a in assignments:
-        mark = "✅" if a.completed_at else "❌"
-        when = ""
-        if a.completed_at:
-            when = a.completed_at.astimezone(tz).strftime("%H:%M")
+        done, total = progress_map.get(a.id, (0, len(a.tasks)))
+        mark = "✅" if total and done == total else "❌"
+        progress_tag = ""
+        if total:
+            progress_tag = f" ({done}/{total})"
         photo_tag = f"  📸{len(a.photos)}" if a.photos else ""
         date_label = f"{a.assigned_date.strftime('%m-%d')} ({_WEEKDAY[a.assigned_date.weekday()]})"
-        progress = _task_summary(a)
-        progress_tag = f" ({progress})" if progress and not a.completed_at else ""
-        lines.append(f"{date_label} {mark} {when:>5}  {a.content}{progress_tag}{photo_tag}")
+        lines.append(f"{date_label} {mark}  {a.content}{progress_tag}{photo_tag}")
     return "\n".join(lines)
 
 
-def schedule_text(
-    assignments: list[Assignment], start_date: date, days: int
+def pending_text(
+    assignments: list[Assignment],
+    progress_map: dict[int, tuple[int, int]] | None = None,
 ) -> str:
+    if not assignments:
+        return "🎉 目前沒有未完成的作業"
+    lines = ["⏳ 未完成作業"]
+    progress_map = progress_map or {}
+    for a in assignments:
+        date_label = f"{a.assigned_date.strftime('%m-%d')} ({_WEEKDAY[a.assigned_date.weekday()]})"
+        done, total = progress_map.get(a.id, (0, len(a.tasks)))
+        progress_tag = f" ({done}/{total})" if total else ""
+        lines.append(f"{date_label}  {a.content}{progress_tag}")
+    return "\n".join(lines)
+
+
+def schedule_text(assignments: list[Assignment], start_date: date, days: int) -> str:
     from datetime import timedelta
 
     by_date = {a.assigned_date: a for a in assignments}
@@ -279,26 +311,12 @@ def schedule_text(
             lines.append(f"{date_label} (未派)")
             empty_days += 1
             continue
-        icon = "✅" if a.completed_at else "📝"
         total = len(a.tasks)
-        done = sum(1 for t in a.tasks if t.completed_at is not None)
-        progress = f"  ({done}/{total})" if total else ""
-        lines.append(f"{date_label} {icon} {a.content}{progress}")
+        icon = "📝"
+        lines.append(f"{date_label} {icon} {a.content}" + (f"  ({total} 項)" if total > 1 else ""))
     if empty_days:
         lines.append("")
         lines.append(f"⚠️ 有 {empty_days} 天未派作業")
-    return "\n".join(lines)
-
-
-def pending_text(assignments: list[Assignment]) -> str:
-    if not assignments:
-        return "🎉 目前沒有未完成的作業"
-    lines = ["⏳ 未完成作業"]
-    for a in assignments:
-        date_label = f"{a.assigned_date.strftime('%m-%d')} ({_WEEKDAY[a.assigned_date.weekday()]})"
-        progress = _task_summary(a)
-        progress_tag = f" ({progress})" if progress else ""
-        lines.append(f"{date_label}  {a.content}{progress_tag}")
     return "\n".join(lines)
 
 
@@ -307,12 +325,33 @@ def complete_ack_text(completed_at: datetime, tz: ZoneInfo) -> str:
     return f"辛苦了！已記錄完成時間 {local.strftime('%H:%M')} 🎉"
 
 
-def teacher_notify_complete(assignment: Assignment, tz: ZoneInfo) -> str:
-    when = assignment.completed_at.astimezone(tz).strftime("%H:%M") if assignment.completed_at else ""
-    return f"📮 學生已完成今日作業「{assignment.content}」（{when}）"
+def teacher_notify_complete(
+    student_label: str, assignment: Assignment, completed_at: datetime, tz: ZoneInfo
+) -> str:
+    when = completed_at.astimezone(tz).strftime("%H:%M")
+    return f"📮 {student_label} 已完成今日作業「{assignment.content}」（{when}）"
 
 
-def teacher_notify_photo(assignment: Assignment | None) -> str:
+def teacher_notify_task_complete(
+    student_label: str, task_text: str, done: int, total: int
+) -> str:
+    return f"📝 {student_label} 完成了「{task_text}」（{done}/{total}）"
+
+
+def teacher_notify_photo(student_label: str, assignment: Assignment | None) -> str:
     if assignment is None:
-        return "📸 學生傳了一張照片（今日尚未派作業）"
-    return f"📸 學生傳了作業照片「{assignment.content}」"
+        return f"📸 {student_label} 傳了一張照片（今日尚未派作業）"
+    return f"📸 {student_label} 傳了作業照片「{assignment.content}」"
+
+
+def students_list_text(students: list) -> str:
+    if not students:
+        return (
+            "目前沒有登記的學生。\n"
+            "請學生加本機器人為好友，他們會自動登記。"
+        )
+    lines = ["👥 已登記的學生"]
+    for i, s in enumerate(students, 1):
+        name = s.display_name or "(未命名)"
+        lines.append(f"{i}. {name}  {s.line_user_id[:8]}…")
+    return "\n".join(lines)

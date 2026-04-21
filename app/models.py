@@ -1,6 +1,16 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -58,6 +68,48 @@ class Photo(Base):
     )
 
     assignment: Mapped[Assignment | None] = relationship("Assignment", back_populates="photos")
+
+
+class Student(Base):
+    __tablename__ = "students"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    line_user_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TaskCompletion(Base):
+    __tablename__ = "task_completions"
+    __table_args__ = (UniqueConstraint("task_id", "student_id", name="uq_task_student"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class AssignmentStudentState(Base):
+    __tablename__ = "assignment_student_state"
+    __table_args__ = (UniqueConstraint("assignment_id", "student_id", name="uq_assignment_student"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    assignment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EventLog(Base):

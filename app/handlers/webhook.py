@@ -14,9 +14,10 @@ from app.config import get_settings
 from app.handlers.commands import parse_command
 from app.handlers.student import handle_student_image, handle_student_postback
 from app.handlers.teacher import handle_teacher_command, handle_teacher_postback
-from app.line_client import reply_text
+from app.line_client import get_profile, reply_text
 from app.logging import get_logger
 from app.models import EventLog
+from app.services import student as student_svc
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -82,6 +83,26 @@ def _log_event(session: Session, event_type: str, payload: Any) -> None:
         session.rollback()
 
 
+def _ensure_student_registered(session: Session, user_id: str) -> None:
+    """Register a non-teacher user as student (idempotent). Fetches display name from LINE."""
+    settings = get_settings()
+    if not user_id or user_id == settings.TEACHER_USER_ID:
+        return
+    existing = student_svc.get_by_line_id(session, user_id)
+    if existing is not None and existing.active:
+        return
+    profile = get_profile(user_id)
+    display_name = profile.get("displayName") if profile else None
+    student_svc.register_student(session, user_id, display_name=display_name)
+    # Best-effort: link student rich menu
+    try:
+        from app.services.rich_menu import link_student_menu_for_user
+
+        link_student_menu_for_user(user_id)
+    except Exception as exc:
+        log.warning("auto_link_rich_menu_failed", error=str(exc))
+
+
 def _dispatch(session: Session, event: dict[str, Any]) -> None:
     settings = get_settings()
     source = event.get("source") or {}
@@ -89,12 +110,24 @@ def _dispatch(session: Session, event: dict[str, Any]) -> None:
     event_type = event.get("type")
     reply_token = event.get("replyToken", "")
 
+    # Always seed legacy student if configured
+    student_svc.ensure_seed(session, settings.STUDENT_USER_ID)
+
+    # Handle follow / unfollow
+    if event_type == "follow":
+        _ensure_student_registered(session, user_id)
+        return
+    if event_type == "unfollow":
+        if user_id and user_id != settings.TEACHER_USER_ID:
+            student_svc.deactivate(session, user_id)
+        return
+
     message = event.get("message") or {}
     text = (message.get("text") or "").strip() if event_type == "message" else ""
 
-    # Bootstrap: allow /whoami for anyone if both role IDs are empty
-    bootstrap = not settings.TEACHER_USER_ID and not settings.STUDENT_USER_ID
+    bootstrap = not settings.TEACHER_USER_ID
 
+    # Allow /whoami from anyone
     if event_type == "message" and message.get("type") == "text":
         cmd = parse_command(text)
         if cmd and cmd.name == "whoami":
@@ -109,26 +142,22 @@ def _dispatch(session: Session, event: dict[str, Any]) -> None:
                 )
             return
 
-    if not bootstrap:
-        role = _role_of(user_id, settings)
-        if role is None:
-            if reply_token and event_type == "message":
-                reply_text(reply_token, "此帳號為私人教學用途，恕不提供回應。")
-            return
-        if role == "teacher":
-            _dispatch_teacher(session, event, reply_token, text)
-            return
-        if role == "student":
-            _dispatch_student(session, event, reply_token)
-            return
+    if bootstrap:
+        return
 
-
-def _role_of(user_id: str, settings) -> str | None:
+    # Dispatch by role
     if user_id and user_id == settings.TEACHER_USER_ID:
-        return "teacher"
-    if user_id and user_id == settings.STUDENT_USER_ID:
-        return "student"
-    return None
+        _dispatch_teacher(session, event, reply_token, text)
+        return
+
+    # Non-teacher: auto-register as student on first interaction
+    _ensure_student_registered(session, user_id)
+    student = student_svc.get_by_line_id(session, user_id)
+    if student is None or not student.active:
+        if reply_token and event_type == "message":
+            reply_text(reply_token, "系統錯誤，請稍後再試。")
+        return
+    _dispatch_student(session, event, reply_token, student.id)
 
 
 def _dispatch_teacher(session: Session, event: dict[str, Any], reply_token: str, text: str) -> None:
@@ -149,25 +178,19 @@ def _dispatch_teacher(session: Session, event: dict[str, Any], reply_token: str,
     handle_teacher_command(session, reply_token, cmd)
 
 
-def _dispatch_student(session: Session, event: dict[str, Any], reply_token: str) -> None:
+def _dispatch_student(
+    session: Session, event: dict[str, Any], reply_token: str, student_id: int
+) -> None:
     event_type = event.get("type")
     if event_type == "postback":
         data = (event.get("postback") or {}).get("data", "")
-        handle_student_postback(session, reply_token, data)
+        handle_student_postback(session, reply_token, data, student_id)
         return
     if event_type == "message":
         message = event.get("message") or {}
         mtype = message.get("type")
         if mtype == "image":
-            handle_student_image(session, reply_token, message.get("id", ""))
+            handle_student_image(session, reply_token, message.get("id", ""), student_id)
             return
-        if mtype == "text":
-            text = (message.get("text") or "").strip()
-            cmd = parse_command(text)
-            if cmd and cmd.name == "whoami":
-                # already handled upstream, but redundant safety
-                if reply_token:
-                    source = event.get("source") or {}
-                    reply_text(reply_token, f"你的 User ID 是：{source.get('userId','')}")
-            # other student text: ignore silently
-            return
+        # Other student messages: ignore silently
+        return

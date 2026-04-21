@@ -114,5 +114,8 @@ def test_admin_stats_streak(client, session_factory, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 4
-    assert body["completed"] == 3
-    assert body["current_streak"] == 3
+    # New multi-student response format
+    assert body["students"], "expected at least one student"
+    s0 = body["students"][0]
+    assert s0["completed"] == 3
+    assert s0["streak"] == 3

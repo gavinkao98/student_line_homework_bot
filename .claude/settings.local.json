@@ -12,7 +12,8 @@
       "Bash(./.venv/Scripts/python.exe -c \"import secrets; print\\(secrets.token_hex\\(16\\)\\)\")",
       "Bash(./.venv/Scripts/python.exe -m alembic upgrade head)",
       "Bash(ngrok version *)",
-      "Bash(./.venv/Scripts/python.exe -c ' *)"
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(./.venv/Scripts/python.exe -m ruff check --fix --unsafe-fixes app tests)"
     ]
   }
 }

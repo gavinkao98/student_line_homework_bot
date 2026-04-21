@@ -58,6 +58,35 @@ def session(session_factory):
         s.close()
 
 
+@pytest.fixture(autouse=True)
+def _seed_test_student(session_factory, monkeypatch):
+    """Auto-register the test student for every test."""
+    monkeypatch.setattr("app.line_client.get_profile", lambda uid: None)
+    monkeypatch.setattr(
+        "app.services.rich_menu.link_student_menu_for_user", lambda uid: None
+    )
+    from app.services.student import register_student
+
+    s = session_factory()
+    try:
+        register_student(s, "U_student_test", "TestStudent")
+    finally:
+        s.close()
+    yield
+
+
+@pytest.fixture
+def test_student_id(session_factory):
+    from app.services.student import get_by_line_id
+
+    s = session_factory()
+    try:
+        st = get_by_line_id(s, "U_student_test")
+        return st.id
+    finally:
+        s.close()
+
+
 @pytest.fixture
 def client(engine, session_factory, monkeypatch):
     # Patch the module-level engine + SessionLocal so production code uses our test DB.

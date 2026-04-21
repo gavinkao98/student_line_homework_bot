@@ -94,8 +94,8 @@ def test_student_complete_task_final_triggers_assignment_complete(client, sessio
         _post(client, [_student_postback(f"action=complete_task&task_id={t2}")])
     assert "全部完成" in m.call_args.args[1]
     assert mp.called
-    # teacher gets "completed today's assignment" style notification
-    assert "學生已完成" in mp.call_args.args[1]
+    # teacher gets "已完成" notification (with student name)
+    assert "已完成" in mp.call_args.args[1]
 
 
 def test_student_complete_all(client, session_factory, monkeypatch):

@@ -74,8 +74,9 @@ def test_teacher_postback_stats(client, session_factory, monkeypatch):
         _post(client, [_teacher_postback("action=stats")])
         assert m.called
         msg = m.call_args.args[1]
-        assert "完成率" in msg
-        assert "連續完成" in msg
+        # New multi-student format: "・<name>：完成 N/M（X%），連續 K 天"
+        assert "完成" in msg
+        assert "連續" in msg
 
 
 def test_student_postback_view_today(client, session_factory, monkeypatch):

@@ -93,8 +93,9 @@ def test_teacher_assign_creates(client, session_factory, monkeypatch):
         s.close()
 
 
-def test_stranger_gets_rejection(client):
-    with patch("app.handlers.webhook.reply_text") as mock_reply:
+def test_stranger_auto_registered_as_student(client, session_factory):
+    # In multi-student mode, strangers who interact are auto-registered as students.
+    with patch("app.handlers.webhook.reply_text"):
         status, _ = _post_events(client, [{
             "type": "message",
             "replyToken": "rt1",
@@ -102,8 +103,16 @@ def test_stranger_gets_rejection(client):
             "message": {"type": "text", "id": "m1", "text": "hello"},
         }])
         assert status == 200
-        assert mock_reply.called
-        assert "私人" in mock_reply.call_args.args[1]
+        # Non-command text from student is silently ignored (no reply)
+        # Stranger should be registered now
+    s = session_factory()
+    try:
+        from app.services.student import get_by_line_id
+        student = get_by_line_id(s, "U_stranger")
+        assert student is not None
+        assert student.active
+    finally:
+        s.close()
 
 
 def test_student_postback_complete(client, session_factory, monkeypatch):
