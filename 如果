@@ -1,0 +1,8 @@
+擋 : 無法辨識 '擋' 詞彙是否為 Cmdlet、函數、指令檔或可執行程式的名稱。請檢查名稱拼字是否正確，如果包含路徑的話，請確認
+路徑是否正確，然後再試一次。
+位於 線路:1 字元:1
++ 擋 `Activate.ps1`，改用：`.\.venv\Scripts\python.exe -m uvicorn app.main:a ...
++ ~
+    + CategoryInfo          : ObjectNotFound: (擋:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 

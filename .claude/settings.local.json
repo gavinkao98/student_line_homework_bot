@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/python.exe -m pip install --upgrade pip)",
+      "Bash(.venv/Scripts/python.exe -m pip install -e \".[dev]\")",
+      "Bash(./.venv/Scripts/python.exe -m pytest -q)",
+      "Bash(.venv/Scripts/python.exe -m pip install tzdata)",
+      "Bash(./.venv/Scripts/python.exe -m ruff check app tests)",
+      "Bash(./.venv/Scripts/python.exe -m ruff check --fix app tests)",
+      "Bash(./.venv/Scripts/python.exe -c \"from fastapi.testclient import TestClient; import os; os.environ['LINE_CHANNEL_ACCESS_TOKEN']='t'; os.environ['LINE_CHANNEL_SECRET']='s'; from app.main import app; c=TestClient\\(app\\); print\\(c.get\\('/health'\\).json\\(\\)\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import secrets; print\\(secrets.token_hex\\(16\\)\\)\")",
+      "Bash(./.venv/Scripts/python.exe -m alembic upgrade head)",
+      "Bash(ngrok version *)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)"
+    ]
+  }
+}

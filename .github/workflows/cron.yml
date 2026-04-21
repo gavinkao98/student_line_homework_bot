@@ -1,0 +1,44 @@
+name: Cron
+
+on:
+  schedule:
+    - cron: "0 23 * * *"   # UTC 23:00 == 台北 07:00 push assignment
+    - cron: "0 13 * * *"   # UTC 13:00 == 台北 21:00 send reminder
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: "push-assignment | send-reminder"
+        required: true
+        default: "push-assignment"
+
+jobs:
+  hit-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide endpoint
+        id: pick
+        env:
+          MANUAL_ENDPOINT: ${{ github.event.inputs.endpoint }}
+        run: |
+          set -eu
+          if [ -n "${MANUAL_ENDPOINT:-}" ]; then
+            echo "endpoint=$MANUAL_ENDPOINT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          hour=$(date -u +%H)
+          if [ "$hour" = "23" ]; then
+            echo "endpoint=push-assignment" >> "$GITHUB_OUTPUT"
+          else
+            echo "endpoint=send-reminder" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Hit endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ENDPOINT: ${{ steps.pick.outputs.endpoint }}
+        run: |
+          set -eu
+          curl -fsS -X POST \
+            -H "X-Cron-Token: $CRON_SECRET" \
+            "$APP_URL/cron/$ENDPOINT"
