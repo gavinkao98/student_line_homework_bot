@@ -80,6 +80,11 @@ class Student(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Set when student taps "🚩 不會標記" button; next free-text message is
+    # treated as stuck content. Cleared after submission or timeout.
+    awaiting_stuck_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class TaskCompletion(Base):
@@ -110,6 +115,10 @@ class AssignmentStudentState(Base):
     pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Gate: student must submit a stuck note (or "無") before they can mark done
+    stuck_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class StuckConcept(Base):

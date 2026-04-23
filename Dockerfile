@@ -15,7 +15,10 @@ RUN pip install --upgrade pip && pip install --prefix=/install .
 # --- runtime stage ---
 FROM base AS runtime
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    fonts-noto-color-emoji \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/share/zoneinfo/Asia/Taipei /etc/localtime
 

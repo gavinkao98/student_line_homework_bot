@@ -363,26 +363,40 @@ def teacher_notify_photo(student_label: str, assignment: Assignment | None) -> s
 
 def student_stuck_prompt() -> str:
     return (
-        "🚩 標記不會的觀念 / 章節\n"
-        "請用以下格式：\n"
-        "/stuck <觀念或章節>\n\n"
-        "例：/stuck 二次函數配方法\n"
-        "或：/stuck 第3回 第5題不會\n\n"
-        "可多次使用，老師會知道要重點講解"
+        "🚩 今天有什麼觀念或章節不太會？\n"
+        "直接打字告訴我就好，例如：\n"
+        "「二次函數配方法」\n"
+        "「第3回第5題不會」\n\n"
+        "如果今天都懂，回覆「無」即可 ✅"
     )
 
 
 def student_stuck_ack(concept: str, total_open: int) -> str:
     return (
         f"🚩 已登記「{concept}」\n"
-        f"目前有 {total_open} 項待解決，下次上課會跟老師討論 📝"
+        f"目前有 {total_open} 項待解決，下次上課會跟老師討論 📝\n"
+        "現在可以開始勾選完成的題目了！"
+    )
+
+
+def student_stuck_ack_none() -> str:
+    return (
+        "👌 好的，今天沒有不會的地方。\n"
+        "現在可以開始勾選完成的題目了！"
+    )
+
+
+def student_stuck_gate_reject() -> str:
+    return (
+        "請先按底下的 🚩 不會標記，告訴我今天有沒有不會的觀念\n"
+        "（如果都懂，按下去後回覆「無」即可）"
     )
 
 
 def student_stuck_empty_usage() -> str:
     return (
-        "用法：/stuck <觀念或章節>\n"
-        "例：/stuck 二次函數配方法"
+        "請打出你不會的觀念或章節，例如：「二次函數配方法」\n"
+        "如果都懂，回「無」即可"
     )
 
 

@@ -115,7 +115,7 @@ def test_stranger_auto_registered_as_student(client, session_factory):
         s.close()
 
 
-def test_student_postback_complete(client, session_factory, monkeypatch):
+def test_student_postback_complete(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
@@ -123,6 +123,7 @@ def test_student_postback_complete(client, session_factory, monkeypatch):
         aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
 
     with patch("app.handlers.student.reply_text") as mock_reply, \
          patch("app.handlers.student.push_text") as mock_push:
@@ -146,7 +147,7 @@ def test_student_postback_complete(client, session_factory, monkeypatch):
         s.close()
 
 
-def test_student_postback_complete_idempotent(client, session_factory, monkeypatch):
+def test_student_postback_complete_idempotent(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
@@ -155,6 +156,7 @@ def test_student_postback_complete_idempotent(client, session_factory, monkeypat
         aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
 
     with patch("app.handlers.student.reply_text") as mock_reply, \
          patch("app.handlers.student.push_text") as mock_push:

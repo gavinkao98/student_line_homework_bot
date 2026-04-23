@@ -92,13 +92,15 @@ def test_student_postback_view_today(client, session_factory, monkeypatch):
         assert "第12回" in m.call_args.args[1]
 
 
-def test_student_postback_complete_today(client, session_factory, monkeypatch):
+def test_student_postback_complete_today(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
-        svc.upsert_today(s, "第12回")
+        a, _, _ = svc.upsert_today(s, "第12回")
+        aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
     with patch("app.handlers.student.reply_text") as m, \
          patch("app.handlers.student.push_text") as mp:
         _post(client, [_student_postback("action=complete_today")])

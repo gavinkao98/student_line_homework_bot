@@ -77,10 +77,10 @@ def test_student_stuck_empty_shows_usage(client):
     with patch("app.handlers.student.reply_text") as mr:
         _post(client, [_student_msg("/stuck")])
     assert mr.called
-    assert "/stuck" in mr.call_args.args[1]
+    assert "不會" in mr.call_args.args[1] or "無" in mr.call_args.args[1]
 
 
-def test_student_stuck_prompt_postback(client):
+def test_student_stuck_prompt_postback(client, session_factory):
     with patch("app.handlers.student.reply_text") as mr:
         _post(client, [{
             "type": "postback",
@@ -89,7 +89,61 @@ def test_student_stuck_prompt_postback(client):
             "postback": {"data": "action=stuck_prompt"},
         }])
     assert mr.called
-    assert "/stuck" in mr.call_args.args[1]
+    # New prompt asks "有什麼觀念或章節不太會" — not /stuck format
+    assert "不會" in mr.call_args.args[1]
+    # Awaiting flag should be set
+    s = session_factory()
+    try:
+        st = student_svc.get_by_line_id(s, "U_student_test")
+        assert stuck_svc.is_awaiting(s, st.id)
+    finally:
+        s.close()
+
+
+def test_student_inline_stuck_after_button(client, session_factory):
+    """Real user flow: press button → bot asks → student types free text."""
+    # 1. Press button
+    with patch("app.handlers.student.reply_text"):
+        _post(client, [{
+            "type": "postback",
+            "replyToken": "rt1",
+            "source": {"userId": "U_student_test", "type": "user"},
+            "postback": {"data": "action=stuck_prompt"},
+        }])
+    # 2. Type free-form content (not prefixed with /stuck)
+    with patch("app.handlers.student.reply_text") as mr, \
+         patch("app.handlers.student.push_text") as mp:
+        _post(client, [_student_msg("二次函數配方法")])
+    assert "二次函數配方法" in mr.call_args.args[1]
+    assert mp.called  # teacher notified
+
+    # Awaiting flag now cleared
+    s = session_factory()
+    try:
+        st = student_svc.get_by_line_id(s, "U_student_test")
+        assert not stuck_svc.is_awaiting(s, st.id)
+    finally:
+        s.close()
+
+
+def test_student_inline_stuck_none_skips_notify(client):
+    """Student says '無' → no stuck item, no teacher push, but gate still satisfied."""
+    with patch("app.handlers.student.reply_text"):
+        _post(client, [{
+            "type": "postback",
+            "replyToken": "rt1",
+            "source": {"userId": "U_student_test", "type": "user"},
+            "postback": {"data": "action=stuck_prompt"},
+        }])
+    with patch("app.handlers.student.reply_text") as mr, \
+         patch("app.handlers.student.push_text") as mp:
+        _post(client, [_student_msg("無")])
+    # Student gets "好的，今天沒有不會" style reply
+    assert mr.called
+    msg = mr.call_args.args[1]
+    assert "沒有" in msg or "好的" in msg
+    # Teacher NOT notified
+    assert not mp.called
 
 
 def test_teacher_stuck_list_and_clear(client, session_factory):
@@ -122,3 +176,72 @@ def test_teacher_stuck_empty_shows_friendly(client):
     with patch("app.handlers.teacher.reply_text") as m:
         _post(client, [_teacher_msg("/stuck")])
     assert "沒有" in m.call_args.args[1]
+
+
+def test_complete_blocked_before_stuck(client, session_factory, monkeypatch):
+    """Student cannot complete a task before submitting a stuck note."""
+    from app.services import assignment as svc
+
+    monkeypatch.setattr(svc, "today_local", lambda tz=None: __import__("datetime").date(2026, 4, 21))
+    s = session_factory()
+    try:
+        a, _, _ = svc.upsert_today(s, "A; B")
+        t1 = a.tasks[0].id
+    finally:
+        s.close()
+    # Try to complete without passing stuck gate
+    with patch("app.handlers.student.reply_text") as mr, \
+         patch("app.handlers.student.push_text") as mp:
+        _post(client, [{
+            "type": "postback",
+            "replyToken": "rt1",
+            "source": {"userId": "U_student_test", "type": "user"},
+            "postback": {"data": f"action=complete_task&task_id={t1}"},
+        }])
+    # Expect rejection, no teacher push, task NOT completed
+    msg = mr.call_args.args[1]
+    assert "🚩" in msg or "不會標記" in msg
+    assert not mp.called
+    # Verify task NOT completed
+    s = session_factory()
+    try:
+        a = svc.get_by_date(s, __import__("datetime").date(2026, 4, 21))
+        assert a.tasks[0].completed_at is None
+    finally:
+        s.close()
+
+
+def test_complete_allowed_after_saying_none(client, session_factory, monkeypatch):
+    """Student says '無' → gate opens → complete works."""
+    from app.services import assignment as svc
+
+    monkeypatch.setattr(svc, "today_local", lambda tz=None: __import__("datetime").date(2026, 4, 21))
+    s = session_factory()
+    try:
+        a, _, _ = svc.upsert_today(s, "A")
+        t1 = a.tasks[0].id
+    finally:
+        s.close()
+
+    # 1. Press 🚩 button → awaiting mode
+    with patch("app.handlers.student.reply_text"):
+        _post(client, [{
+            "type": "postback",
+            "replyToken": "rt1",
+            "source": {"userId": "U_student_test", "type": "user"},
+            "postback": {"data": "action=stuck_prompt"},
+        }])
+    # 2. Reply "無" → gate passes
+    with patch("app.handlers.student.reply_text"):
+        _post(client, [_student_msg("無")])
+    # 3. Now complete works
+    with patch("app.handlers.student.reply_text") as mr, \
+         patch("app.handlers.student.push_text") as mp:
+        _post(client, [{
+            "type": "postback",
+            "replyToken": "rt1",
+            "source": {"userId": "U_student_test", "type": "user"},
+            "postback": {"data": f"action=complete_task&task_id={t1}"},
+        }])
+    assert "✅" in mr.call_args.args[1] or "辛苦" in mr.call_args.args[1] or "全部完成" in mr.call_args.args[1]
+    assert mp.called

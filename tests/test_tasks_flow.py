@@ -62,14 +62,16 @@ def test_teacher_batch_assign(client, session_factory, monkeypatch):
         s.close()
 
 
-def test_student_complete_task_partial(client, session_factory, monkeypatch):
+def test_student_complete_task_partial(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
         a, _, _ = svc.upsert_today(s, "A; B; C")
         t1_id = a.tasks[0].id
+        aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
     with patch("app.handlers.student.reply_text") as m, \
          patch("app.handlers.student.push_text") as mp:
         _post(client, [_student_postback(f"action=complete_task&task_id={t1_id}")])
@@ -80,15 +82,17 @@ def test_student_complete_task_partial(client, session_factory, monkeypatch):
     assert "1/3" in mp.call_args.args[1]
 
 
-def test_student_complete_task_final_triggers_assignment_complete(client, session_factory, monkeypatch):
+def test_student_complete_task_final_triggers_assignment_complete(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
         a, _, _ = svc.upsert_today(s, "A; B")
         t1, t2 = a.tasks[0].id, a.tasks[1].id
         svc.mark_task_complete(s, t1)
+        aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
     with patch("app.handlers.student.reply_text") as m, \
          patch("app.handlers.student.push_text") as mp:
         _post(client, [_student_postback(f"action=complete_task&task_id={t2}")])
@@ -98,7 +102,7 @@ def test_student_complete_task_final_triggers_assignment_complete(client, sessio
     assert "已完成" in mp.call_args.args[1]
 
 
-def test_student_complete_all(client, session_factory, monkeypatch):
+def test_student_complete_all(client, session_factory, monkeypatch, pass_stuck_gate):
     monkeypatch.setattr(svc, "today_local", lambda tz=None: date(2026, 4, 21))
     s = session_factory()
     try:
@@ -106,6 +110,7 @@ def test_student_complete_all(client, session_factory, monkeypatch):
         aid = a.id
     finally:
         s.close()
+    pass_stuck_gate(aid)
     with patch("app.handlers.student.reply_text") as m, \
          patch("app.handlers.student.push_text") as mp:
         _post(client, [_student_postback(f"action=complete_all&assignment_id={aid}")])

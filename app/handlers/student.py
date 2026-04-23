@@ -13,7 +13,9 @@ from app.messages import (
     build_assignment_flex,
     complete_ack_text,
     student_stuck_ack,
+    student_stuck_ack_none,
     student_stuck_empty_usage,
+    student_stuck_gate_reject,
     student_stuck_prompt,
     teacher_notify_complete,
     teacher_notify_photo,
@@ -64,47 +66,91 @@ def handle_student_postback(
         reply_text(reply_token, "📸 請直接在聊天室傳送照片，我會幫你存起來並通知老師。")
         return
     if action == "stuck_prompt":
+        stuck_svc.start_awaiting(session, student_id)
         reply_text(reply_token, student_stuck_prompt())
         return
     log.info("student_postback_unknown_action", data=data)
 
 
-def handle_student_text_command(
+def handle_student_text(
     session: Session, reply_token: str, text: str, student_id: int
 ) -> bool:
-    """Returns True if handled, False if not recognized (caller may ignore)."""
+    """Handle free-text message from student.
+
+    Priority:
+      1. If student is in "awaiting stuck" state → treat text as stuck input
+      2. If text starts with `/stuck` → legacy explicit command
+      3. Otherwise ignore silently
+    """
     from app.handlers.commands import parse_command
+
+    if stuck_svc.is_awaiting(session, student_id):
+        _handle_inline_stuck(session, reply_token, text, student_id)
+        return True
 
     cmd = parse_command(text)
     if cmd is None:
         return False
     if cmd.name == "stuck":
-        _handle_stuck_text(session, reply_token, cmd, student_id)
+        _handle_legacy_stuck_command(session, reply_token, cmd, student_id)
         return True
     return False
 
 
-def _handle_stuck_text(session: Session, reply_token: str, cmd, student_id: int) -> None:
+# backwards-compat alias (webhook still imports old name)
+handle_student_text_command = handle_student_text
+
+
+def _handle_inline_stuck(
+    session: Session, reply_token: str, text: str, student_id: int
+) -> None:
+    content = (text or "").strip()
+    if not content:
+        # Empty input while awaiting — just re-prompt
+        reply_text(reply_token, student_stuck_empty_usage())
+        return
+
+    # Record (or skip if "無") and clear awaiting flag
+    item, is_none = stuck_svc.submit_inline(session, student_id, content)
+
+    # Satisfy completion gate for today's assignment (if any)
+    today_assignment = svc.get_by_date(session, svc.today_local())
+    if today_assignment is not None:
+        stuck_svc.mark_assignment_stuck_submitted(
+            session, today_assignment.id, student_id
+        )
+
+    # Reply to student
+    if is_none:
+        reply_text(reply_token, student_stuck_ack_none())
+    else:
+        open_count = stuck_svc.count_open_for_student(session, student_id)
+        reply_text(reply_token, student_stuck_ack(content, open_count))
+
+    # Notify teacher only if there's something to notify
+    if item is not None:
+        settings = get_settings()
+        if settings.TEACHER_USER_ID:
+            label = _student_label(session, student_id)
+            total_all = len(stuck_svc.list_open(session))
+            try:
+                push_text(
+                    settings.TEACHER_USER_ID,
+                    teacher_stuck_notify(label, content, total_all),
+                )
+            except Exception as exc:
+                log.warning("teacher_stuck_notify_failed", error=str(exc))
+
+
+def _handle_legacy_stuck_command(
+    session: Session, reply_token: str, cmd, student_id: int
+) -> None:
+    """Legacy /stuck <content> text command (kept for power users / tests)."""
     content = cmd.args[0].strip() if cmd.args and cmd.args[0].strip() else ""
     if not content:
         reply_text(reply_token, student_stuck_empty_usage())
         return
-    stuck_svc.record(session, student_id, content)
-    # Confirm to student
-    open_count = stuck_svc.count_open_for_student(session, student_id)
-    reply_text(reply_token, student_stuck_ack(content, open_count))
-    # Notify teacher
-    settings = get_settings()
-    if settings.TEACHER_USER_ID:
-        label = _student_label(session, student_id)
-        total_all = len(stuck_svc.list_open(session))
-        try:
-            push_text(
-                settings.TEACHER_USER_ID,
-                teacher_stuck_notify(label, content, total_all),
-            )
-        except Exception as exc:
-            log.warning("teacher_stuck_notify_failed", error=str(exc))
+    _handle_inline_stuck(session, reply_token, content, student_id)
 
 
 def _handle_complete_legacy(
@@ -134,6 +180,15 @@ def _handle_complete_task(
         task_id = int(raw)
     except ValueError:
         reply_text(reply_token, "資料格式錯誤。")
+        return
+    # Gate: must have submitted stuck note first
+    from app.models import Task as _Task
+    tmp_t = session.get(_Task, task_id)
+    if tmp_t is not None and not stuck_svc.is_stuck_gate_passed(
+        session, tmp_t.assignment_id, student_id
+    ):
+        stuck_svc.start_awaiting(session, student_id)
+        reply_text(reply_token, student_stuck_gate_reject())
         return
     t, a, newly, assignment_newly = svc.mark_task_complete(session, task_id, student_id)
     if t is None:
@@ -170,6 +225,11 @@ def _do_complete_all(
     session: Session, reply_token: str, assignment_id: int, student_id: int
 ) -> None:
     tz = get_settings().tz
+    # Gate: must have submitted stuck note first
+    if not stuck_svc.is_stuck_gate_passed(session, assignment_id, student_id):
+        stuck_svc.start_awaiting(session, student_id)
+        reply_text(reply_token, student_stuck_gate_reject())
+        return
     a, marked, assignment_newly = svc.mark_all_tasks_complete(session, assignment_id, student_id)
     if a is None:
         reply_text(reply_token, "找不到對應的作業。")

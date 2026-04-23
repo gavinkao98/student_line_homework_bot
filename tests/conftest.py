@@ -88,6 +88,27 @@ def test_student_id(session_factory):
 
 
 @pytest.fixture
+def pass_stuck_gate(session_factory):
+    """Returns a helper fn(assignment_id, student_line_id='U_student_test') that
+    marks the stuck-before-complete gate as satisfied, so completion tests
+    don't have to walk through the interactive stuck prompt flow."""
+    from app.services.stuck import mark_assignment_stuck_submitted
+    from app.services.student import get_by_line_id
+
+    def _pass(assignment_id, student_line_id: str = "U_student_test"):
+        s = session_factory()
+        try:
+            st = get_by_line_id(s, student_line_id)
+            if st is None:
+                raise RuntimeError(f"student {student_line_id} not registered")
+            mark_assignment_stuck_submitted(s, assignment_id, st.id)
+        finally:
+            s.close()
+
+    return _pass
+
+
+@pytest.fixture
 def client(engine, session_factory, monkeypatch):
     # Patch the module-level engine + SessionLocal so production code uses our test DB.
     monkeypatch.setattr(db_module, "engine", engine)

@@ -77,21 +77,50 @@ def _load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def _load_emoji_font(size: int):
-    from PIL import ImageFont
+_EMOJI_FONT_PATHS = [
+    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+    "C:\\Windows\\Fonts\\seguiemj.ttf",
+]
 
-    candidates = [
-        "C:\\Windows\\Fonts\\seguiemj.ttf",
-        "C:\\Windows\\Fonts\\seguisym.ttf",
-        "/System/Library/Fonts/Apple Color Emoji.ttc",
-        "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
-    ]
-    for p in candidates:
+
+def _render_emoji_to_image(emoji_char: str, target_height: int):
+    """Render emoji as an RGBA PIL image at target_height.
+
+    Loads NotoColorEmoji at its native 109 size (CBDT font), renders to a
+    transparent canvas, crops to tight bbox, and resizes to target.
+    Returns None if no color emoji font available.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    native_size = 109
+    font = None
+    for p in _EMOJI_FONT_PATHS:
         try:
-            return ImageFont.truetype(p, size)
+            font = ImageFont.truetype(p, native_size)
+            break
         except OSError:
             continue
-    return _load_font(size)
+    if font is None:
+        return None
+
+    # Render into transparent canvas sized for a single emoji (~136x128 native)
+    canvas = Image.new("RGBA", (180, 160), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    try:
+        draw.text((20, 15), emoji_char, font=font, embedded_color=True)
+    except Exception:
+        return None
+    bbox = canvas.getbbox()
+    if bbox is None:
+        return None
+    canvas = canvas.crop(bbox)
+    if canvas.height == 0:
+        return None
+    ratio = target_height / canvas.height
+    new_size = (max(1, int(canvas.width * ratio)), target_height)
+    return canvas.resize(new_size, Image.LANCZOS)
 
 
 def _vertical_gradient(size: tuple[int, int], top: tuple[int, int, int], bottom: tuple[int, int, int]):
@@ -138,7 +167,7 @@ def build_menu_image(rows: int, cols: int, buttons: list[MenuButton], role: str)
     gap = 24
     radius = 56
     font_label = _load_font(88, bold=True)
-    font_emoji = _load_emoji_font(280)
+    font_emoji = _load_font(200)  # fallback only, used if no emoji font available
 
     for idx, btn in enumerate(buttons):
         r, c = divmod(idx, cols)
@@ -170,27 +199,33 @@ def build_menu_image(rows: int, cols: int, buttons: list[MenuButton], role: str)
         )
         canvas.paste(sheen, (x0, y0), sheen)
 
-        # Icon override?
+        # Icon: asset override > rendered emoji > text fallback
         asset = _asset_path(role, idx)
         icon_cy = y0 + int(ch * 0.42)
+        target_h = int(min(cw, ch) * 0.48)
+        icon_img = None
         if asset.exists():
-            icon = Image.open(asset).convert("RGBA")
-            target = int(min(cw, ch) * 0.52)
-            icon.thumbnail((target, target), Image.LANCZOS)
-            ix = x0 + (cw - icon.width) // 2
-            iy = icon_cy - icon.height // 2
-            canvas.paste(icon, (ix, iy), icon)
+            icon_img = Image.open(asset).convert("RGBA")
+            icon_img.thumbnail((target_h, target_h), Image.LANCZOS)
         else:
+            icon_img = _render_emoji_to_image(btn.emoji, target_height=target_h)
+
+        if icon_img is not None:
+            ix = x0 + (cw - icon_img.width) // 2
+            iy = icon_cy - icon_img.height // 2
+            canvas.paste(icon_img, (ix, iy), icon_img)
+        else:
+            # Last-resort text fallback
             draw = ImageDraw.Draw(canvas)
-            bbox = draw.textbbox((0, 0), btn.emoji, font=font_emoji, embedded_color=True)
-            ew = bbox[2] - bbox[0]
-            eh = bbox[3] - bbox[1]
-            ex = x0 + (cw - ew) // 2 - bbox[0]
-            ey = icon_cy - eh // 2 - bbox[1]
             try:
-                draw.text((ex, ey), btn.emoji, font=font_emoji, embedded_color=True)
-            except TypeError:
+                bbox = draw.textbbox((0, 0), btn.emoji, font=font_emoji)
+                ew = bbox[2] - bbox[0]
+                eh = bbox[3] - bbox[1]
+                ex = x0 + (cw - ew) // 2 - bbox[0]
+                ey = icon_cy - eh // 2 - bbox[1]
                 draw.text((ex, ey), btn.emoji, font=font_emoji, fill=(255, 255, 255))
+            except Exception:
+                log.warning("emoji_render_failed_all_fallbacks", emoji=btn.emoji)
 
         # Label
         draw = ImageDraw.Draw(canvas)
