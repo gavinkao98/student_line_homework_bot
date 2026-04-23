@@ -6,6 +6,21 @@ from zoneinfo import ZoneInfo
 
 from app.models import Assignment, Task
 
+_UTC = ZoneInfo("UTC")
+
+
+def _to_tz(dt: datetime | None, tz: ZoneInfo) -> datetime | None:
+    """Ensure datetime is tz-aware (assume UTC if naive), then convert to target tz.
+
+    SQLite doesn't preserve tzinfo, so datetimes read back from DB are naive
+    even though we stored aware-UTC. Treat naive as UTC.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_UTC)
+    return dt.astimezone(tz)
+
 _WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
 
 
@@ -321,14 +336,14 @@ def schedule_text(assignments: list[Assignment], start_date: date, days: int) ->
 
 
 def complete_ack_text(completed_at: datetime, tz: ZoneInfo) -> str:
-    local = completed_at.astimezone(tz)
+    local = _to_tz(completed_at, tz)
     return f"辛苦了！已記錄完成時間 {local.strftime('%H:%M')} 🎉"
 
 
 def teacher_notify_complete(
     student_label: str, assignment: Assignment, completed_at: datetime, tz: ZoneInfo
 ) -> str:
-    when = completed_at.astimezone(tz).strftime("%H:%M")
+    when = _to_tz(completed_at, tz).strftime("%H:%M")
     return f"📮 {student_label} 已完成今日作業「{assignment.content}」（{when}）"
 
 
