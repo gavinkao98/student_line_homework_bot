@@ -197,20 +197,33 @@ def teacher_help_text() -> str:
         "/assign YYYY-MM-DD <內容>\n"
         "/assign 週三: <內容> — 最近一次週三\n"
         "多項目：內容用 ; ；、分開\n"
-        "例：/assign 週三: 第2回、第3回\n"
         "\n"
-        "批次一整週（每行 週X: 內容）：\n"
-        "/assign\n"
-        "週一: 第1回\n"
-        "週三: 第2回; 生詞\n"
-        "週五: 第3回\n"
+        "/delete today — 刪除今日作業\n"
+        "/delete YYYY-MM-DD\n"
+        "/delete 週三 — 最近一次週三\n"
         "\n"
         "/today /history [N] /pending\n"
-        "/schedule [N] — 今天起 N 天排程\n"
-        "/students — 目前登記的學生\n"
-        "/stuck — 學生標記不會的觀念清單\n"
-        "/stuck clear — 標記全部已講解\n"
+        "/schedule [N] /students\n"
+        "/stuck /stuck clear\n"
         "/whoami /help"
+    )
+
+
+def delete_ack_text(assignment, target_date) -> str:
+    if assignment is None:
+        return f"⚠️ {target_date.isoformat()} 本來就沒有作業，無需刪除"
+    return (
+        f"🗑️ 已刪除 {assignment.assigned_date.isoformat()} 作業\n"
+        f"「{assignment.content}」"
+    )
+
+
+def delete_usage_text() -> str:
+    return (
+        "用法：\n"
+        "/delete today — 刪今日作業\n"
+        "/delete YYYY-MM-DD — 刪指定日期\n"
+        "/delete 週三 — 刪最近一次週三"
     )
 
 
@@ -364,10 +377,8 @@ def teacher_notify_photo(student_label: str, assignment: Assignment | None) -> s
 def student_stuck_prompt() -> str:
     return (
         "🚩 今天有什麼觀念或章節不太會？\n"
-        "直接打字告訴我就好，例如：\n"
-        "「二次函數配方法」\n"
-        "「第3回第5題不會」\n\n"
-        "如果今天都懂，回覆「無」即可 ✅"
+        "直接打字告訴我就好。\n"
+        "如果都懂，回覆「無」即可 ✅"
     )
 
 

@@ -348,6 +348,26 @@ def list_overdue_task_states(
     return [TaskState(task=t, completed_at=None) for t in tasks]
 
 
+def delete_by_date(session: Session, d: date) -> Assignment | None:
+    """Delete the assignment for a given date. Cascades to tasks / state / photos.
+    Returns the deleted assignment (detached) or None if not found."""
+    existing = get_by_date(session, d)
+    if existing is None:
+        return None
+    snapshot_content = existing.content
+    snapshot_date = existing.assigned_date
+    # Capture attributes before delete (ORM expires the object)
+    session.delete(existing)
+    session.commit()
+    # Return a minimal stub for display (detached)
+    class _Ghost:
+        pass
+    ghost = _Ghost()
+    ghost.content = snapshot_content
+    ghost.assigned_date = snapshot_date
+    return ghost  # type: ignore[return-value]
+
+
 def _default_student_id(session: Session) -> int | None:
     """Legacy helper: first active student id (for tests / migration compat)."""
     s = session.execute(

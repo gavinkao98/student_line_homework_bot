@@ -5,11 +5,20 @@ from urllib.parse import parse_qs
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.handlers.commands import ParsedCommand, parse_batch_assign, split_assign_args
+from app.handlers.commands import (
+    ParsedCommand,
+    parse_batch_assign,
+    parse_weekday_token,
+    resolve_weekday_to_date,
+    split_assign_args,
+    try_parse_iso_date,
+)
 from app.line_client import reply_text
 from app.logging import get_logger
 from app.messages import (
     assign_ack_text,
+    delete_ack_text,
+    delete_usage_text,
     history_text,
     pending_text,
     schedule_text,
@@ -64,7 +73,32 @@ def handle_teacher_command(session: Session, reply_token: str, cmd: ParsedComman
     if name == "stuck":
         _handle_stuck(session, reply_token, cmd)
         return
+    if name == "delete":
+        _handle_delete(session, reply_token, cmd)
+        return
     reply_text(reply_token, "未知指令。輸入 /help 查看可用指令。")
+
+
+def _handle_delete(session: Session, reply_token: str, cmd: ParsedCommand) -> None:
+    if not cmd.args or not cmd.args[0].strip():
+        reply_text(reply_token, delete_usage_text())
+        return
+    arg = cmd.args[0].strip()
+    today = svc.today_local()
+    target_date = None
+    if arg.lower() == "today" or arg in ("今日", "今天"):
+        target_date = today
+    else:
+        target_date = try_parse_iso_date(arg)
+        if target_date is None:
+            weekday = parse_weekday_token(arg)
+            if weekday is not None:
+                target_date = resolve_weekday_to_date(weekday, today)
+    if target_date is None:
+        reply_text(reply_token, delete_usage_text())
+        return
+    deleted = svc.delete_by_date(session, target_date)
+    reply_text(reply_token, delete_ack_text(deleted, target_date))
 
 
 def _handle_stuck(session: Session, reply_token: str, cmd: ParsedCommand) -> None:

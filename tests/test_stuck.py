@@ -89,8 +89,9 @@ def test_student_stuck_prompt_postback(client, session_factory):
             "postback": {"data": "action=stuck_prompt"},
         }])
     assert mr.called
-    # New prompt asks "有什麼觀念或章節不太會" — not /stuck format
-    assert "不會" in mr.call_args.args[1]
+    msg = mr.call_args.args[1]
+    # New prompt asks "有什麼觀念或章節不太會" — friendlier free-text prompt
+    assert "觀念" in msg or "章節" in msg
     # Awaiting flag should be set
     s = session_factory()
     try:

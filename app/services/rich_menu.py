@@ -26,6 +26,13 @@ TEACHER_HEIGHT = 1686  # 2 rows × 3 cols
 STUDENT_HEIGHT = 843   # 1 row × 3 cols
 
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets" / "rich_menu"
+EMOJI_DIR = Path(__file__).resolve().parents[2] / "assets" / "emoji"
+
+
+def _emoji_to_twemoji_hex(emoji_char: str) -> str:
+    """Convert emoji char to lowercase twemoji hex filename (multi-codepoint joined by '-')."""
+    parts = [f"{ord(c):x}" for c in emoji_char if c != "\ufe0f"]  # drop variation selectors
+    return "-".join(parts)
 
 
 @dataclass
@@ -88,12 +95,28 @@ _EMOJI_FONT_PATHS = [
 def _render_emoji_to_image(emoji_char: str, target_height: int):
     """Render emoji as an RGBA PIL image at target_height.
 
-    Loads NotoColorEmoji at its native 109 size (CBDT font), renders to a
-    transparent canvas, crops to tight bbox, and resizes to target.
-    Returns None if no color emoji font available.
+    Priority:
+      1. Bundled Twemoji PNG in assets/emoji/<hex>.png (always works, no font deps)
+      2. NotoColorEmoji via Pillow (if installed)
+      3. None (caller falls back to text draw)
     """
     from PIL import Image, ImageDraw, ImageFont
 
+    # 1. Try bundled Twemoji PNG first — most reliable
+    hex_code = _emoji_to_twemoji_hex(emoji_char)
+    png_path = EMOJI_DIR / f"{hex_code}.png"
+    if png_path.exists():
+        try:
+            img = Image.open(png_path).convert("RGBA")
+            if img.height != target_height:
+                ratio = target_height / img.height
+                new_size = (max(1, int(img.width * ratio)), target_height)
+                img = img.resize(new_size, Image.LANCZOS)
+            return img
+        except Exception as exc:
+            log.warning("twemoji_load_failed", emoji=emoji_char, error=str(exc))
+
+    # 2. Fallback: try NotoColorEmoji / Apple Color Emoji via font
     native_size = 109
     font = None
     for p in _EMOJI_FONT_PATHS:
@@ -104,12 +127,10 @@ def _render_emoji_to_image(emoji_char: str, target_height: int):
             continue
     if font is None:
         return None
-
-    # Render into transparent canvas sized for a single emoji (~136x128 native)
-    canvas = Image.new("RGBA", (180, 160), (0, 0, 0, 0))
+    canvas = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
     try:
-        draw.text((20, 15), emoji_char, font=font, embedded_color=True)
+        draw.text((30, 30), emoji_char, font=font, embedded_color=True)
     except Exception:
         return None
     bbox = canvas.getbbox()
