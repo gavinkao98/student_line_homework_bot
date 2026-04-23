@@ -15,7 +15,6 @@ from app.messages import (
     student_stuck_ack,
     student_stuck_ack_none,
     student_stuck_empty_usage,
-    student_stuck_gate_reject,
     student_stuck_prompt,
     teacher_notify_complete,
     teacher_notify_photo,
@@ -181,15 +180,6 @@ def _handle_complete_task(
     except ValueError:
         reply_text(reply_token, "資料格式錯誤。")
         return
-    # Gate: must have submitted stuck note first
-    from app.models import Task as _Task
-    tmp_t = session.get(_Task, task_id)
-    if tmp_t is not None and not stuck_svc.is_stuck_gate_passed(
-        session, tmp_t.assignment_id, student_id
-    ):
-        stuck_svc.start_awaiting(session, student_id)
-        reply_text(reply_token, student_stuck_gate_reject())
-        return
     t, a, newly, assignment_newly = svc.mark_task_complete(session, task_id, student_id)
     if t is None:
         reply_text(reply_token, "找不到對應的項目。")
@@ -225,11 +215,6 @@ def _do_complete_all(
     session: Session, reply_token: str, assignment_id: int, student_id: int
 ) -> None:
     tz = get_settings().tz
-    # Gate: must have submitted stuck note first
-    if not stuck_svc.is_stuck_gate_passed(session, assignment_id, student_id):
-        stuck_svc.start_awaiting(session, student_id)
-        reply_text(reply_token, student_stuck_gate_reject())
-        return
     a, marked, assignment_newly = svc.mark_all_tasks_complete(session, assignment_id, student_id)
     if a is None:
         reply_text(reply_token, "找不到對應的作業。")

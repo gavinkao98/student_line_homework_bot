@@ -179,8 +179,8 @@ def test_teacher_stuck_empty_shows_friendly(client):
     assert "沒有" in m.call_args.args[1]
 
 
-def test_complete_blocked_before_stuck(client, session_factory, monkeypatch):
-    """Student cannot complete a task before submitting a stuck note."""
+def test_complete_no_longer_gated(client, session_factory, monkeypatch):
+    """Stuck submission is no longer required before completion (gate removed)."""
     from app.services import assignment as svc
 
     monkeypatch.setattr(svc, "today_local", lambda tz=None: __import__("datetime").date(2026, 4, 21))
@@ -190,7 +190,7 @@ def test_complete_blocked_before_stuck(client, session_factory, monkeypatch):
         t1 = a.tasks[0].id
     finally:
         s.close()
-    # Try to complete without passing stuck gate
+    # Complete straight away — no prior stuck submission needed
     with patch("app.handlers.student.reply_text") as mr, \
          patch("app.handlers.student.push_text") as mp:
         _post(client, [{
@@ -199,32 +199,15 @@ def test_complete_blocked_before_stuck(client, session_factory, monkeypatch):
             "source": {"userId": "U_student_test", "type": "user"},
             "postback": {"data": f"action=complete_task&task_id={t1}"},
         }])
-    # Expect rejection, no teacher push, task NOT completed
     msg = mr.call_args.args[1]
-    assert "🚩" in msg or "不會標記" in msg
-    assert not mp.called
-    # Verify task NOT completed
-    s = session_factory()
-    try:
-        a = svc.get_by_date(s, __import__("datetime").date(2026, 4, 21))
-        assert a.tasks[0].completed_at is None
-    finally:
-        s.close()
+    # Should succeed, not a gate reject message
+    assert "不會標記" not in msg
+    # Teacher gets progress notification
+    assert mp.called
 
 
-def test_complete_allowed_after_saying_none(client, session_factory, monkeypatch):
-    """Student says '無' → gate opens → complete works."""
-    from app.services import assignment as svc
-
-    monkeypatch.setattr(svc, "today_local", lambda tz=None: __import__("datetime").date(2026, 4, 21))
-    s = session_factory()
-    try:
-        a, _, _ = svc.upsert_today(s, "A")
-        t1 = a.tasks[0].id
-    finally:
-        s.close()
-
-    # 1. Press 🚩 button → awaiting mode
+def test_stuck_submission_still_works(client, session_factory):
+    """Student can still submit stuck notes via the 🚩 flow (just no longer required)."""
     with patch("app.handlers.student.reply_text"):
         _post(client, [{
             "type": "postback",
@@ -232,17 +215,11 @@ def test_complete_allowed_after_saying_none(client, session_factory, monkeypatch
             "source": {"userId": "U_student_test", "type": "user"},
             "postback": {"data": "action=stuck_prompt"},
         }])
-    # 2. Reply "無" → gate passes
-    with patch("app.handlers.student.reply_text"):
-        _post(client, [_student_msg("無")])
-    # 3. Now complete works
     with patch("app.handlers.student.reply_text") as mr, \
          patch("app.handlers.student.push_text") as mp:
-        _post(client, [{
-            "type": "postback",
-            "replyToken": "rt1",
-            "source": {"userId": "U_student_test", "type": "user"},
-            "postback": {"data": f"action=complete_task&task_id={t1}"},
-        }])
-    assert "✅" in mr.call_args.args[1] or "辛苦" in mr.call_args.args[1] or "全部完成" in mr.call_args.args[1]
+        _post(client, [_student_msg("微積分不太會")])
+    # Student gets confirmation
+    assert "微積分不太會" in mr.call_args.args[1]
+    # Teacher gets the stuck notification
     assert mp.called
+    assert "微積分不太會" in mp.call_args.args[1]
