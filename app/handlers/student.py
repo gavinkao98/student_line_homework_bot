@@ -12,14 +12,19 @@ from app.messages import (
     assignment_alt_text,
     build_assignment_flex,
     complete_ack_text,
+    student_stuck_ack,
+    student_stuck_empty_usage,
+    student_stuck_prompt,
     teacher_notify_complete,
     teacher_notify_photo,
     teacher_notify_task_complete,
+    teacher_stuck_notify,
     today_status_text,
 )
 from app.models import Student
 from app.services import assignment as svc
 from app.services import photo as photo_svc
+from app.services import stuck as stuck_svc
 
 log = get_logger(__name__)
 
@@ -58,7 +63,48 @@ def handle_student_postback(
     if action == "photo_hint":
         reply_text(reply_token, "📸 請直接在聊天室傳送照片，我會幫你存起來並通知老師。")
         return
+    if action == "stuck_prompt":
+        reply_text(reply_token, student_stuck_prompt())
+        return
     log.info("student_postback_unknown_action", data=data)
+
+
+def handle_student_text_command(
+    session: Session, reply_token: str, text: str, student_id: int
+) -> bool:
+    """Returns True if handled, False if not recognized (caller may ignore)."""
+    from app.handlers.commands import parse_command
+
+    cmd = parse_command(text)
+    if cmd is None:
+        return False
+    if cmd.name == "stuck":
+        _handle_stuck_text(session, reply_token, cmd, student_id)
+        return True
+    return False
+
+
+def _handle_stuck_text(session: Session, reply_token: str, cmd, student_id: int) -> None:
+    content = cmd.args[0].strip() if cmd.args and cmd.args[0].strip() else ""
+    if not content:
+        reply_text(reply_token, student_stuck_empty_usage())
+        return
+    stuck_svc.record(session, student_id, content)
+    # Confirm to student
+    open_count = stuck_svc.count_open_for_student(session, student_id)
+    reply_text(reply_token, student_stuck_ack(content, open_count))
+    # Notify teacher
+    settings = get_settings()
+    if settings.TEACHER_USER_ID:
+        label = _student_label(session, student_id)
+        total_all = len(stuck_svc.list_open(session))
+        try:
+            push_text(
+                settings.TEACHER_USER_ID,
+                teacher_stuck_notify(label, content, total_all),
+            )
+        except Exception as exc:
+            log.warning("teacher_stuck_notify_failed", error=str(exc))
 
 
 def _handle_complete_legacy(

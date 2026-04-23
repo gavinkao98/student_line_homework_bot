@@ -131,9 +131,9 @@ def build_assignment_flex(
             "style": "secondary",
             "action": {
                 "type": "postback",
-                "label": "📸 傳作業照片",
-                "data": "action=photo_hint",
-                "displayText": "想傳照片",
+                "label": "🚩 有不會的觀念",
+                "data": "action=stuck_prompt",
+                "displayText": "我有不會的",
             },
         },
     ]
@@ -208,6 +208,8 @@ def teacher_help_text() -> str:
         "/today /history [N] /pending\n"
         "/schedule [N] — 今天起 N 天排程\n"
         "/students — 目前登記的學生\n"
+        "/stuck — 學生標記不會的觀念清單\n"
+        "/stuck clear — 標記全部已講解\n"
         "/whoami /help"
     )
 
@@ -357,6 +359,63 @@ def teacher_notify_photo(student_label: str, assignment: Assignment | None) -> s
     if assignment is None:
         return f"📸 {student_label} 傳了一張照片（今日尚未派作業）"
     return f"📸 {student_label} 傳了作業照片「{assignment.content}」"
+
+
+def student_stuck_prompt() -> str:
+    return (
+        "🚩 標記不會的觀念 / 章節\n"
+        "請用以下格式：\n"
+        "/stuck <觀念或章節>\n\n"
+        "例：/stuck 二次函數配方法\n"
+        "或：/stuck 第3回 第5題不會\n\n"
+        "可多次使用，老師會知道要重點講解"
+    )
+
+
+def student_stuck_ack(concept: str, total_open: int) -> str:
+    return (
+        f"🚩 已登記「{concept}」\n"
+        f"目前有 {total_open} 項待解決，下次上課會跟老師討論 📝"
+    )
+
+
+def student_stuck_empty_usage() -> str:
+    return (
+        "用法：/stuck <觀念或章節>\n"
+        "例：/stuck 二次函數配方法"
+    )
+
+
+def teacher_stuck_notify(student_label: str, concept: str, total_open_all: int) -> str:
+    return (
+        f"🚩 {student_label} 標記不會\n"
+        f"「{concept}」\n"
+        f"（所有學生未解決共 {total_open_all} 項）"
+    )
+
+
+def teacher_stuck_list(grouped: list) -> str:
+    """grouped: list[(Student, list[StuckConcept])]"""
+    if not grouped:
+        return "🎉 目前沒有任何「不會」標記"
+    lines = ["🚩 學生未解決的觀念"]
+    total = 0
+    for student, items in grouped:
+        name = student.display_name or "(未命名)"
+        lines.append("")
+        lines.append(f"👤 {name}（{len(items)} 項）")
+        for item in items:
+            lines.append(f"・{item.content}")
+        total += len(items)
+    lines.append("")
+    lines.append(f"💡 講解完用 /stuck clear 一鍵清空（目前共 {total} 項）")
+    return "\n".join(lines)
+
+
+def teacher_stuck_cleared(count: int) -> str:
+    if count == 0:
+        return "目前沒有未解決的項目"
+    return f"✅ 已標記 {count} 項為已解決"
 
 
 def students_list_text(students: list) -> str:

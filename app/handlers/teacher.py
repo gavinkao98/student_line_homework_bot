@@ -15,9 +15,12 @@ from app.messages import (
     schedule_text,
     students_list_text,
     teacher_help_text,
+    teacher_stuck_cleared,
+    teacher_stuck_list,
     today_status_text,
 )
 from app.services import assignment as svc
+from app.services import stuck as stuck_svc
 from app.services import student as student_svc
 
 log = get_logger(__name__)
@@ -58,7 +61,21 @@ def handle_teacher_command(session: Session, reply_token: str, cmd: ParsedComman
     if name == "students":
         reply_text(reply_token, students_list_text(student_svc.list_active(session)))
         return
+    if name == "stuck":
+        _handle_stuck(session, reply_token, cmd)
+        return
     reply_text(reply_token, "未知指令。輸入 /help 查看可用指令。")
+
+
+def _handle_stuck(session: Session, reply_token: str, cmd: ParsedCommand) -> None:
+    sub = cmd.args[0].strip() if cmd.args and cmd.args[0].strip() else ""
+    if sub.lower() == "clear":
+        n = stuck_svc.resolve_all(session)
+        reply_text(reply_token, teacher_stuck_cleared(n))
+        return
+    # default: list
+    grouped = stuck_svc.list_grouped_by_student(session)
+    reply_text(reply_token, teacher_stuck_list(grouped))
 
 
 def handle_teacher_postback(session: Session, reply_token: str, data: str) -> None:

@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 from app import db as _db
 from app.config import get_settings
 from app.handlers.commands import parse_command
-from app.handlers.student import handle_student_image, handle_student_postback
+from app.handlers.student import (
+    handle_student_image,
+    handle_student_postback,
+    handle_student_text_command,
+)
 from app.handlers.teacher import handle_teacher_command, handle_teacher_postback
 from app.line_client import get_profile, reply_text
 from app.logging import get_logger
@@ -192,5 +196,9 @@ def _dispatch_student(
         if mtype == "image":
             handle_student_image(session, reply_token, message.get("id", ""), student_id)
             return
-        # Other student messages: ignore silently
+        if mtype == "text":
+            text = (message.get("text") or "").strip()
+            # Try command handler (e.g. /stuck). If handled, done. Else ignore.
+            handle_student_text_command(session, reply_token, text, student_id)
+            return
         return

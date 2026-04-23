@@ -50,7 +50,7 @@ TEACHER_BUTTONS: list[MenuButton] = [
 STUDENT_BUTTONS: list[MenuButton] = [
     MenuButton("今日作業", "📚", "action=view_today", (102, 167, 255), (56, 116, 208)),
     MenuButton("我完成了", "✅", "action=complete_today", (76, 209, 149), (38, 160, 108)),
-    MenuButton("傳照片", "📸", "action=photo_hint", (255, 184, 108), (214, 136, 54)),
+    MenuButton("不會標記", "🚩", "action=stuck_prompt", (255, 121, 121), (210, 73, 73)),
 ]
 
 
