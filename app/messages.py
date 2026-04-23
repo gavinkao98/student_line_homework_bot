@@ -385,23 +385,12 @@ def student_stuck_prompt() -> str:
 def student_stuck_ack(concept: str, total_open: int) -> str:
     return (
         f"🚩 已登記「{concept}」\n"
-        f"目前有 {total_open} 項待解決，下次上課會跟老師討論 📝\n"
-        "現在可以開始勾選完成的題目了！"
+        f"目前有 {total_open} 項待解決，下次上課會跟老師討論 📝"
     )
 
 
 def student_stuck_ack_none() -> str:
-    return (
-        "👌 好的，今天沒有不會的地方。\n"
-        "現在可以開始勾選完成的題目了！"
-    )
-
-
-def student_stuck_gate_reject() -> str:
-    return (
-        "請先按底下的 🚩 不會標記，告訴我今天有沒有不會的觀念\n"
-        "（如果都懂，按下去後回覆「無」即可）"
-    )
+    return "👌 好的，今天沒有不會的地方 🎉"
 
 
 def student_stuck_empty_usage() -> str:

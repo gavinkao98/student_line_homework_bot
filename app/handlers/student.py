@@ -112,13 +112,6 @@ def _handle_inline_stuck(
     # Record (or skip if "無") and clear awaiting flag
     item, is_none = stuck_svc.submit_inline(session, student_id, content)
 
-    # Satisfy completion gate for today's assignment (if any)
-    today_assignment = svc.get_by_date(session, svc.today_local())
-    if today_assignment is not None:
-        stuck_svc.mark_assignment_stuck_submitted(
-            session, today_assignment.id, student_id
-        )
-
     # Reply to student
     if is_none:
         reply_text(reply_token, student_stuck_ack_none())

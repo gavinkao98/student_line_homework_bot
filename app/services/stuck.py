@@ -112,8 +112,7 @@ def submit_inline(
 ) -> tuple[StuckConcept | None, bool]:
     """Handle inline-text stuck submission. Returns (stuck_item_or_None, is_no_response).
 
-    If user said "無"/"沒有": no stuck item stored, but gate is cleared.
-    Caller should also set AssignmentStudentState.stuck_submitted_at for today's assignment.
+    If user said "無"/"沒有": no stuck item stored.
     """
     no_response = is_no_stuck_response(content)
     item = None
@@ -121,24 +120,3 @@ def submit_inline(
         item = record(session, student_id, content)
     clear_awaiting(session, student_id)
     return item, no_response
-
-
-def mark_assignment_stuck_submitted(
-    session: Session, assignment_id: int, student_id: int
-) -> None:
-    """Satisfy the stuck-before-complete gate for this (assignment, student)."""
-    from app.services.assignment import get_or_create_state
-
-    state = get_or_create_state(session, assignment_id, student_id)
-    state.stuck_submitted_at = _now_utc()
-    session.commit()
-
-
-def is_stuck_gate_passed(
-    session: Session, assignment_id: int, student_id: int
-) -> bool:
-    """True if student has submitted a stuck note (or 無) for this assignment."""
-    from app.services.assignment import get_state
-
-    state = get_state(session, assignment_id, student_id)
-    return state is not None and state.stuck_submitted_at is not None
